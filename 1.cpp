@@ -2,7 +2,7 @@
 #include <chrono>
 #include <atomic>
 
-// 引入 Windows 原生視窗與圖形庫
+// 1. 自動判斷平台並載入對應的圖形系統標頭檔
 #if defined(_WIN32) || defined(_WIN64)
     #include <windows.h>
     #include <GL/gl.h>
@@ -12,19 +12,21 @@
     #define EXPORT __declspec(dllexport)
 #else
     #define EXPORT __attribute__((visibility("default")))
+    #if defined(__ANDROID__)
+        #include <android/native_window.h>
+        #include <android/native_window_jni.h>
+    #endif
 #endif
 
-// 這裡假設你已經把 imgui 放入子目錄，未來正式編譯需要解開以下註解
-// #include "imgui/imgui.h"
-
+// ---- 共享控制變數（Flet 前端與 C++ 後台雙向同步） ----
 std::atomic<bool> is_running(false);
 std::thread overlay_thread;
 
-std::atomic<bool> draw_menu(true);
-std::atomic<bool> aimbot_switch(false);
-std::atomic<float> aim_fov(100.0f);
+std::atomic<bool> draw_menu(true);      // 控制選單顯示/隱藏
+std::atomic<bool> aimbot_switch(false);  // 自瞄功能開關
+std::atomic<float> aim_fov(100.0f);     // 自瞄範圍範圍
 
-// Windows 視窗訊息處理回呼函式
+// Windows 環境專用的視窗訊息事件回呼
 #if defined(_WIN32) || defined(_WIN64)
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -40,17 +42,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 #endif
 
-// C++ 后台獨立線程
+// ---- C++ 後台獨立渲染與資料處理線程 ----
 void OverlayThread() {
 #if defined(_WIN32) || defined(_WIN64)
-    // 1. 註冊 Windows 視窗類別
+    // 【Windows 渲染初始化】
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, NULL, NULL, NULL, "XS_Menu", NULL };
     RegisterClassEx(&wc);
     
-    // 2. 建立隱形或獨立的測試視窗
+    // 建立本地端除錯選單視窗
     HWND hwnd = CreateWindow(wc.lpszClassName, "XS PRO - Windows 測試菜單", WS_OVERLAPPEDWINDOW, 100, 100, 450, 350, NULL, NULL, wc.hInstance, NULL);
     
-    // 3. 初始化基底 OpenGL 上下文
+    // 初始化 Windows 本地 OpenGL 加速
     PIXELFORMATDESCRIPTOR pfd = { sizeof(PIXELFORMATDESCRIPTOR), 1, PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER, PFD_TYPE_RGBA, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, PFD_MAIN_PLANE, 0, 0, 0, 0 };
     HDC hdc = GetDC(hwnd);
     int pf = ChoosePixelFormat(hdc, &pfd);
@@ -58,18 +60,13 @@ void OverlayThread() {
     HGLRC hglrc = wglCreateContext(hdc);
     wglMakeCurrent(hdc, hglrc);
 
-    // 顯示視窗
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
-
-    // 這裡未來初始化 ImGui Windows 後端
-    // ImGui::CreateContext();
-    // ImGui_ImplWin32_Init(hwnd);
-    // ImGui_ImplOpenGL3_Init();
 
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
     
+    // Windows 渲染主循環
     while (is_running && msg.message != WM_QUIT) {
         if (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE)) {
             TranslateMessage(&msg);
@@ -77,38 +74,41 @@ void OverlayThread() {
             continue;
         }
 
-        // ---- 這裡就是繪製迴圈 ----
-        // 畫布清空
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+        // 清空背景（深灰色底）
+        glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         if (draw_menu) {
-            // 未來這裡放正式的 ImGui 渲染碼
-            // ImGui_ImplOpenGL3_NewFrame();
-            // ImGui_ImplWin32_NewFrame();
-            // ImGui::NewFrame();
-            
-            // ImGui::Begin("XS PRO AI");
-            // ImGui::Checkbox("Aimbot Switch", (bool*)&aimbot_switch);
-            // ImGui::End();
-            
-            // ImGui::Render();
-            // ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            // 【未來此處塞入 Dear ImGui 繪製邏輯】
+            // 例如：ImGui 點擊打勾後，將 aimbot_switch 改為 true/false
         }
 
         SwapBuffers(hdc);
-        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // 鎖定 ~60 幀
+        std::this_thread::sleep_for(std::chrono::milliseconds(16)); // 鎖定約 60 幀
     }
 
-    // 釋放資源
+    // 釋放 Windows 圖形資源
     wglMakeCurrent(NULL, NULL);
     wglDeleteContext(hglrc);
     ReleaseDC(hwnd, hdc);
     DestroyWindow(hwnd);
     UnregisterClass(wc.lpszClassName, wc.hInstance);
+
+#elif defined(__ANDROID__)
+    // 【Android 渲染初始化】
+    // 未來在此處執行：
+    // 1. EGL Display 與 Context 綁定
+    // 2. 透過 ANativeWindow 鎖定頂層透明 Surface
+    while (is_running) {
+        if (draw_menu) {
+            // Android 端的 ImGui 選單刷新
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    }
 #endif
 }
 
+// ---- 外露給 Flet (Python) 呼叫的 C 接口 ----
 extern "C" {
     EXPORT void StartOverlay() {
         if (!is_running) {
@@ -126,7 +126,15 @@ extern "C" {
         }
     }
 
-    EXPORT void ToggleMenu(bool show) { draw_menu = show; }
-    EXPORT bool GetAimbotState() { return aimbot_switch; }
-    EXPORT float GetAimFov() { return aim_fov; }
+    EXPORT void ToggleMenu(bool show) { 
+        draw_menu = show; 
+    }
+    
+    EXPORT bool GetAimbotState() { 
+        return aimbot_switch.load(); 
+    }
+    
+    EXPORT float GetAimFov() { 
+        return aim_fov.load(); 
+    }
 }
