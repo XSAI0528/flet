@@ -2,11 +2,10 @@ name: Build Native Libraries
 
 on:
   push:
-    branches: [ main, master ] # 當你推送到 main 或 master 分支時觸發
-  workflow_dispatch: # 允許你在 GitHub 網頁上手動點擊觸發
+    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  # ---- 1. 編譯 Windows DLL ----
   build-windows:
     runs-on: windows-latest
     steps:
@@ -18,7 +17,6 @@ jobs:
 
       - name: Compile DLL
         run: |
-          # 使用 MSVC 編譯器壓出 dll，並加上不依賴本地額外環境的優化
           cl /LD /O2 1.cpp /Fe:liboverlay.dll /EHsc
         
       - name: Upload DLL Artifact
@@ -27,7 +25,6 @@ jobs:
           name: windows-dll
           path: liboverlay.dll
 
-  # ---- 2. 編譯 Android SO (支援兩種主流架構) ----
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -41,18 +38,11 @@ jobs:
 
       - name: Compile Android SO
         run: |
-          # 建立儲存目錄
           mkdir -p android_libs/arm64-v8a
           mkdir -p android_libs/armeabi-v7a
-          
-          # 獲取 NDK 工具鏈路徑
           TOOLCHAIN=$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
-          
-          # 編譯 arm64-v8a (.so) - 現代手機主流
-          $TOOLCHAIN/aarch64-linux-android33-clang++ -shared -O2 1.cpp -o android_libs/arm64-v8a/liboverlay.so -static-openmp
-          
-          # 編譯 armeabi-v7a (.so) - 舊款手機相容
-          $TOOLCHAIN/armv7a-linux-androideabi33-clang++ -shared -O2 1.cpp -o android_libs/armeabi-v7a/liboverlay.so -static-openmp
+          $TOOLCHAIN/aarch64-linux-android33-clang++ -shared -O2 1.cpp -o android_libs/arm64-v8a/liboverlay.so -landroid -lEGL -lGLESv3 -static-openmp
+          $TOOLCHAIN/armv7a-linux-androideabi33-clang++ -shared -O2 1.cpp -o android_libs/armeabi-v7a/liboverlay.so -landroid -lEGL -lGLESv3 -static-openmp
 
       - name: Upload SO Artifact
         uses: actions/upload-artifact@v4
