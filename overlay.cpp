@@ -1,33 +1,39 @@
 #include <jni.h>
-#include <pthread.h>
-#include <unistd.h>
+#include <thread>
+#include <chrono>
+#include <atomic>
 
-bool is_running = false;
-pthread_t thread_id;
+// 為了相容 Windows MSVC 編譯器的導出語法
+#if defined(_WIN32) || defined(_WIN64)
+    #define EXPORT __declspec(dllexport)
+#else
+    #define EXPORT __attribute__((visibility("default")))
+#endif
 
-// 純 C++ 後台線程
-void* OverlayThread(void* arg) {
+std::atomic<bool> is_running(false);
+std::thread overlay_thread;
+
+void OverlayThread() {
     while (is_running) {
-        // 這裡未來可以放入你真正的 Android 懸浮窗渲染邏輯
-        usleep(100000); // 休息 0.1 秒，避免 CPU 飆高
+        // 未來你的後台渲染邏輯
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    return nullptr;
 }
 
 extern "C" {
-    // 給 Flet 呼叫的啟動函數
-    __attribute__((visibility("default"))) void StartOverlay() {
+    EXPORT void StartOverlay() {
         if (!is_running) {
             is_running = true;
-            pthread_create(&thread_id, nullptr, OverlayThread, nullptr);
+            overlay_thread = std::thread(OverlayThread);
         }
     }
 
-    // 給 Flet 呼叫的關閉函數
-    __attribute__((visibility("default"))) void StopOverlay() {
+    EXPORT void StopOverlay() {
         if (is_running) {
             is_running = false;
-            pthread_join(thread_id, nullptr);
+            if (overlay_thread.joinable()) {
+                overlay_thread.join();
+            }
         }
     }
 }
