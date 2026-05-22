@@ -1,8 +1,11 @@
 #include "imgui.h"
+
 namespace ImGui {
-    ImGuiContext* CreateContext(void* shared_font_atlas) { return nullptr; }
+    ImGuiContext* CreateContext(void* shared_font_atlas) { 
+        static ImGuiContext dummy_ctx;
+        return &dummy_ctx; 
+    }
     void DestroyContext(ImGuiContext* ctx) {}
-    ImGuiIO& GetIO() { static ImGuiIO io; return io; }
     void NewFrame() {}
     void Render() {}
     ImDrawData* GetDrawData() { return nullptr; }
