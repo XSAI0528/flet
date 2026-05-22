@@ -1,39 +1,61 @@
-name: Build Android C++ SO
+name: Build Native Libraries
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:
+    branches: [ main, master ] # 當你推送到 main 或 master 分支時觸發
+  workflow_dispatch: # 允許你在 GitHub 網頁上手動點擊觸發
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
+  # ---- 1. 編譯 Windows DLL ----
+  build-windows:
+    runs-on: windows-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Android SDK & NDK
-      uses: android-actions/setup-android@v3
-      with:
-        ndk-version: '25.2.9519653' # 自動下載並配置標準 NDK 環境
+      - name: Setup MSVC Compiler
+        uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Create Build Dir
-      run: mkdir build
+      - name: Compile DLL
+        run: |
+          # 使用 MSVC 編譯器壓出 dll，並加上不依賴本地額外環境的優化
+          cl /LD /O2 1.cpp /Fe:liboverlay.dll /EHsc
+        
+      - name: Upload DLL Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dll
+          path: liboverlay.dll
 
-    - name: CMake Build (arm64-v8a)
-      run: |
-        cd build
-        cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake \
-          -DANDROID_ABI=arm64-v8a \
-          -DANDROID_PLATFORM=android-26 \
-          -DCMAKE_BUILD_TYPE=Release
-        make
+  # ---- 2. 編譯 Android SO (支援兩種主流架構) ----
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Upload SO Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: libimgui_overlay-arm64-v8a
-        path: build/libimgui_overlay.so
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25c
+
+      - name: Compile Android SO
+        run: |
+          # 建立儲存目錄
+          mkdir -p android_libs/arm64-v8a
+          mkdir -p android_libs/armeabi-v7a
+          
+          # 獲取 NDK 工具鏈路徑
+          TOOLCHAIN=$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin
+          
+          # 編譯 arm64-v8a (.so) - 現代手機主流
+          $TOOLCHAIN/aarch64-linux-android33-clang++ -shared -O2 1.cpp -o android_libs/arm64-v8a/liboverlay.so -static-openmp
+          
+          # 編譯 armeabi-v7a (.so) - 舊款手機相容
+          $TOOLCHAIN/armv7a-linux-androideabi33-clang++ -shared -O2 1.cpp -o android_libs/armeabi-v7a/liboverlay.so -static-openmp
+
+      - name: Upload SO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-so
+          path: android_libs/
