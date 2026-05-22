@@ -17,7 +17,8 @@ jobs:
 
       - name: Compile DLL
         run: |
-          cl /LD /O2 1.cpp /Fe:liboverlay.dll /EHsc
+          # 這裡把 1.cpp 和 imgui 底下的所有核心 .cpp 檔案打包成一個 dll 庫
+          cl /LD /O2 1.cpp imgui/imgui*.cpp /Fe:liboverlay.dll /EHsc
         
       - name: Upload DLL Artifact
         uses: actions/upload-artifact@v4
